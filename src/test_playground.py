@@ -13,6 +13,7 @@ from pointnet.model import PointNetfeat
 from models.few_shot import ImgPCProtoNet
 from models.image_net import ImageEncoderWarpper
 from models.point_cloud_net import PCEncoder, PCDecoder
+from metrics.evaluation_metrics import emd_approx
 
 _modelnet_tfs = tfs.Compose([
     tfs.CenterCrop(550),
@@ -23,18 +24,25 @@ _modelnet_tfs = tfs.Compose([
 
 
 def main(opt):
-    config_file = './modelnet_train.txt'
-    auxiliary_dir = './extra_files/'
-    n_way = 30
-    n_episode = 100
+    t1 = torch.ones(4, 100, 3).cuda()
+    t2 = torch.ones(4, 100, 3).cuda()
 
-    test_ds = FewShotModelNet(config_file, auxiliary_dir, n_classes=n_way, n_support=5, n_query=5, transform=_modelnet_tfs)
-    sampler = EpisodicBatchSampler(len(test_ds), n_way, n_episode)
+    tout = emd_approx(t1, t2)
+    print(tout.shape)
+    t3 = tout.sum()
+    print(t3.shape)
+    # config_file = './modelnet_train.txt'
+    # auxiliary_dir = './extra_files/'
+    # n_way = 30
+    # n_episode = 100
+
+    # test_ds = FewShotModelNet(config_file, auxiliary_dir, n_classes=n_way, n_support=5, n_query=5, transform=_modelnet_tfs)
+    # sampler = EpisodicBatchSampler(len(test_ds), n_way, n_episode)
     
-    dl = DataLoader(test_ds, batch_sampler=sampler, num_workers=0)
+    # dl = DataLoader(test_ds, batch_sampler=sampler, num_workers=0)
 
-    for idx, corpus in enumerate(dl):
-        print(idx)
+    # for idx, corpus in enumerate(dl):
+    #     print(idx)
         # print(f'Support Image Set has Shape: { corpus["xs"].shape }')
         # print(f'Query Image Set has Shape: {corpus["xq"].shape}')
         # print(f'Support Point CLoud Set has Shape: {corpus["pcs"].shape}')

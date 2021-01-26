@@ -13,7 +13,8 @@ from pointnet.model import PointNetfeat
 from torch.utils.data import DataLoader
 from torch.autograd import Variable
 
-from models.point_cloud_net import PCEncoder, AuxClassifier
+from models.point_cloud_net import PCEncoder
+from models.support_models import AuxClassifier
 from tqdm import tqdm
 
 # Dummy transformation for MV_DATASET
@@ -108,7 +109,7 @@ def main(opt):
             pass
 
         if epoch & opt.save_interval == 0 or epoch == opt.epoch:
-            torch.save(model.state_dict(), os.path.join(checkpoint_path, 'pretrained_point_encoder.pt'))
+            torch.save(model.state_dict(), os.path.join(checkpoint_path, f'pretrained_pcencoder_{opt.core}.pt'))
 
         scheduler.step()
         
@@ -120,11 +121,11 @@ if __name__ == '__main__':
     parser.add_argument('--root', type=str, required=True, help="Path to the image")
     parser.add_argument('--proot', type=str, required=True, help="Path to the ply")
 
-
     # Parameters for training:
     parser.add_argument('--epoch', type=int ,default=250, help='Number of epochs to training (default: 1000)')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning Rate')
-    parser.add_argument('--lr_decay', type=float, default=20, help='Decay learning rate every LR_DECAY epoches')
+    parser.add_argument('--lr_decay', type=float, default=40, help='Decay learning rate every LR_DECAY epoches')
+    parser.add_argument('--core', type=str, default='pointnet', help='The core of the PCEncoder')
 
     # Experiment parameters: EXP_NAME, checkpoint path, etc.
     parser.add_argument('--name', type=str, default='pretrain_pointnet', help='Experiment Name')

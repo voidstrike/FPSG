@@ -5,23 +5,34 @@ import torch.nn.functional as F
 
 from .utils import get_template
 from pointnet.model import PointNetfeat
+from dgcnn.model import DGCNNfeat
 
+# Wrapper for PointNetfeat
+class PointNetWrapper(nn.Module):
+    def __init__(self):
+        super(PointNetWrapper, self).__init__()
+        self.pointnet_feat_extractor = PointNetfeat()
+
+    def forward(self, x):
+        pc_feat, _, _ = self.pointnet_feat_extractor(x)
+        return pc_feat
+
+# A Point Cloud Encoder wrapper
 class PCEncoder(nn.Module):
     def __init__(self, core='pointnet'):
         super(PCEncoder, self).__init__()
 
         self.pc_encoder = None
-        if core == 'pointnet':
-            self.pc_encoder = PointNetfeat()
-        elif core == 'dgcnn':
-            #TODO
-            pass
+        if 'pointnet' == core:
+            self.pc_encoder = PointNetWrapper()
+        elif 'dgcnn' == core:
+            self.pc_encoder = DGCNNfeat()
         else:
             raise NotImplementedError(f'Unsupported Point Cloud Encoder Core: {core}')
-    
+
     def forward(self, x):
-        pc_feat, _, _ = self.pc_encoder(x)
-        return pc_feat
+        assert self.pc_encoder is not None, 'Point Cloud Encoder is not initialized'
+        return (self.pc_encoder(x))
 
 class PCDecoder(nn.Module):
     # Adopt Altas-Net based Decoder
@@ -105,33 +116,6 @@ class MLPSlave(nn.Module):
             x = self.activation(self.bn_list[i](self.conv_list[i](x)))
 
         return torch.tanh(self.last_conv(x))
-
-class AuxClassifier(nn.Module):
-    def __init__(self, in_dim, out_dim, num_layer=3):
-        super(AuxClassifier, self).__init__()
-        self.fc1 = nn.Linear(in_dim, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, out_dim)
-
-        self.dropout = nn.Dropout(p=.3)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.bn2 = nn.BatchNorm1d(256)
-
-        self._init_weight()
-
-    def forward(self, x):
-        x = F.relu(self.bn1(self.fc1(x)))
-        x = F.relu(self.bn2(self.dropout(self.fc2(x))))
-        x = self.fc3(x)
-        return F.log_softmax(x, dim=1)
-        # return x # logit
-
-    def _init_weight(self,):
-        nn.init.xavier_normal_(self.fc1.weight.data)
-        nn.init.xavier_normal_(self.fc2.weight.data)
-        nn.init.xavier_normal_(self.fc3.weight.data)
-
-
 
 def get_activation(argument):
     getter = {

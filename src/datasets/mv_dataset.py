@@ -73,7 +73,9 @@ class MultiViewDataSet(Dataset):
         self.loader = loader
         self.data_augment = data_augment
         if not sub_cat:
-            self.target_label = list()
+            self.target_label = ['airplane', 'bed', 'bookshelf', 'chair', 'desk', 'dresser', 'glass_box', 'monitor', 'person', 'plant', 'range_hood',
+            'sofa', 'stool', 'tent', 'tv_stand', 'wardrobe', 'bathtub', 'bench', 'bottle', 'car', 'cone', 'curtain', 'flower_pot', 'guitar', 'lamp', 'mantel',
+            'night_stand', 'piano', 'radio', 'sink', 'stairs', 'table', 'toilet', 'vase', 'xbox']
         else:
             self.target_label = [sub_cat]
 

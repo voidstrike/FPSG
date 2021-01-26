@@ -22,6 +22,7 @@ from models.few_shot import ImgPCProtoNet
 from models.image_net import ImageEncoderWarpper
 from models.point_cloud_net import PCEncoder, PCDecoder
 from models.support_models import FCMaskAlloacter, TransMaskAllocater
+from metrics.evaluation_metrics import jsd_between_point_cloud_sets
 
 _modelnet_tfs = tfs.Compose([
     tfs.CenterCrop(550),
@@ -47,7 +48,7 @@ def main(opt):
     # Load basic configuration parameters--------------------
     config_path, test_path, reference_path = opt.config_path, opt.test_path, opt.refer_path
     n_way, n_shot, n_episode = opt.n_way, opt.n_shot, opt.n_episode
-    n_query = n_shot if opt.n_query == 0 else opt.n_query
+    n_query = 1
 
     # Make checkpoint folder
     timestamp = time.strftime('%m_%d_%H_%M')
@@ -71,10 +72,12 @@ def main(opt):
     sampler = EpisodicBatchSampler(len(ds), n_way, n_episode)
     tmp_sampler = EpisodicBatchSampler(len(ds_test), n_way, n_episode)
     sampler_test = SequentialBatchSampler(len(ds_test))
+    sampler_train = SequentialBatchSampler(len(ds))
 
     dl = DataLoader(ds, batch_sampler=sampler, num_workers=0)  # num_workers=0 to avoid duplicate episode
     dl_test = DataLoader(ds_test, batch_sampler=sampler_test, num_workers=0)
     # dl_test = DataLoader(ds_test, batch_sampler=tmp_sampler, num_workers=0)
+    # dl_test = DataLoader(ds, batch_sampler=sampler_train, num_workers=0)
 
     # Build Model -------------------------------------------
 
@@ -94,100 +97,40 @@ def main(opt):
 
     model = model.cuda()
 
-    # Optimizer & lr_scheduler configuration------------------------------
-    if not opt.SGD:
-        optimizer = optim.Adam(
-            model.parameters(),
-            lr=opt.lr,
-            betas=(.9, .999)
-        )
-    else:
-        optimizer = optim.SGD(
-            model.parameters(),
-            lr=opt.lr,
-            weight_decay=1e-2
-        )
-    scheduler = lr_scheduler.StepLR(optimizer, step_size=opt.lr_decay, gamma=.5)
-
     # Start Training process----------------------------------
-    model.train()
-    log_content = list()
+    # model.train()
+    model.eval()
 
-    for epoch in range(start_epoch, opt.epoch + 1):
-        ttl_rec_loss_q, ttl_rec_loss_s = 0., 0.
+    # classes_syn_pc = defaultdict(list)
+    # classes_ori_pc = defaultdict(list)
+    acc_class_res_cd = defaultdict(list)
 
-        # MAIN TRAINING CODE
-        for sample in tqdm(dl, desc='Epoch {:d} training'.format(epoch)):
+    with torch.no_grad():
+        for sample in tqdm(dl_test, desc='Evaluating'):
             to_cuda(sample)
-            optimizer.zero_grad()
+            # syn_pc, ori_pc = model.get_pc_pairs(sample)
+            # print(syn_pc.shape)
+            # print(ori_pc.shape)
             result_tuple = model.loss(sample)
-            result_tuple['ttl_loss'].backward()
-            optimizer.step()
+            tmp_class_cd = result_tuple['query_rec_loss'].item() / n_query
+            acc_class_res_cd[sample['class'][0]].append(tmp_class_cd)
 
-            ttl_rec_loss_q += result_tuple['query_rec_loss'].item() / n_query
-            ttl_rec_loss_s += result_tuple['support_rec_loss'].item() / n_shot
+            # classes_syn_pc[sample['class'][0]].append(syn_pc)
+            # classes_ori_pc[sample['class'][0]].append(ori_pc)
 
-        tmp_logging = f'Training Results for Epoch -- {epoch} are: Query_rec: {ttl_rec_loss_q / n_episode}, Support_rec: {ttl_rec_loss_s / n_episode}'
-        log_content.append(tmp_logging)
+    for eachKey in sorted(acc_class_res_cd.keys()):
+        # sample_pcs = torch.cat(classes_syn_pc[eachKey], dim=0)
+        # ref_pcs = torch.cat(classes_ori_pc[eachKey], dim=0)
+
+        # sample_pcs = sample_pcs.cpu().detach().numpy()
+        # ref_pcs = ref_pcs.cpu().detach().numpy()
+
+        # jsd = jsd_between_point_cloud_sets(sample_pcs, ref_pcs)
+        # print(f'JSD - {eachKey} : {jsd}')
+        tmp_logging = f'Class: {eachKey} -- Rec CD: {statistics.mean(acc_class_res_cd[eachKey])} ({statistics.stdev(acc_class_res_cd[eachKey])})'
         print(tmp_logging)
 
-        scheduler.step()
 
-        # EVALUATION
-        if epoch % opt.eval_interval == 0 or epoch == opt.epoch:
-        # if True:
-            test_rec_q, test_rec_s = 0., 0.
-            test_emd_q = 0.
-            acc_class_res_cd = defaultdict(list)
-            acc_class_res_emd = defaultdict(list)
-            tmp_all_res = list()
-
-            with torch.no_grad():
-                for sample in tqdm(dl_test, desc='Epoch {:d} evaluating'.format(epoch)):
-                    to_cuda(sample)
-                    result_tuple = model.loss(sample, emd_flag=True)
-
-                    tmp_class_cd = result_tuple['query_rec_loss'].item() / n_query
-                    tmp_class_emd = result_tuple['query_emd'].item() / n_query
-                    test_rec_q += tmp_class_cd
-                    test_emd_q += tmp_class_emd
-                    test_rec_s += result_tuple['support_rec_loss'].item() / n_shot
-
-                    acc_class_res_cd[sample['class'][0]].append(tmp_class_cd)
-                    acc_class_res_emd[sample['class'][0]].append(tmp_class_emd)
-                    tmp_all_res.append(tmp_class_cd)
-
-                # Print results for every classes
-                for eachKey in sorted(acc_class_res_cd.keys()):
-                    tmp_logging = f'Class: {eachKey} -- Rec CD: {statistics.mean(acc_class_res_cd[eachKey])} ({statistics.stdev(acc_class_res_cd[eachKey])})'
-                    print(tmp_logging)
-                    log_content.append(tmp_logging)
-
-                for sample in dl_test:
-                    to_cuda(sample)
-                    model.draw_reconstruction(sample, os.path.join(checkpoint_imgs, f'sample_img_{epoch}_test.png'))
-                    break
-
-            tmp_logging = f'Avg testing results across all classes Epoch -- {epoch} are: Query_rec: {test_rec_q / len(ds_test)} ({statistics.stdev(tmp_all_res)})'
-            log_content.append(tmp_logging)
-            print(tmp_logging)
-        
-        # SAVE 
-        if epoch % opt.save_interval == 0 or epoch == opt.epoch:
-            torch.save(model.state_dict(), os.path.join(checkpoint_path, f'model_epoch_{epoch}.pt'))
-            # Writing log file
-            with open(checkpoint_logs, 'a') as f:
-                f.writelines(f'{line}\n' for line in log_content)
-            log_content = list()
-
-        # VISUALIZE -- first epoch only
-        if epoch % opt.sample_interval == 0:
-            with torch.no_grad():
-                for sample in dl:
-                    to_cuda(sample)
-                    model.draw_reconstruction(sample, os.path.join(checkpoint_imgs, f'sample_img_{epoch}.png'))
-                    break
-    pass
 
 def build_model(opt):
     # Build Model -------------------------------------------
