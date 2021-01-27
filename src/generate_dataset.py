@@ -25,7 +25,7 @@ TRAIN_SET_DIC = {
 #    'modelnet': ['airplane', 'bed', 'bookshelf', 'chair', 'desk', 'dresser', 'glass_box', 'monitor', 'person', 'plant', 'range_hood',
 #    'sofa', 'stool', 'tent', 'tv_stand', 'wardrobe', 'bathtub', 'bench', 'bottle', 'car', 'cone', 'curtain', 'flower_pot', 'guitar', 'lamp', 'mantel',
 #    'night_stand', 'piano', 'radio', 'sink', 'stairs', 'table', 'toilet', 'vase', 'xbox'],
-     'modelnet': ['airplane', 'bathtub', 'bed', 'chair', 'desk', 'dresser', 'monitor', 'sofa', 'table', 'toilet']
+     'modelnet': ['airplane', 'bathtub', 'bed', 'chair', 'desk', 'dresser', 'monitor', 'sofa', 'table', 'toilet']，
     # 'modelnet': ['airplane', 'bed']
     'shapenet': ['airplane', 'camera', 'car', 'clock', 'chair', 'faucet', 'printer', 'rocket']
 }
