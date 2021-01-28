@@ -53,7 +53,7 @@ python3 generate_dataset.py --img_path IMG_PATH --pc_path PC_PATH --dataset mode
 CUDA_VISIBLE_DEVICES=X python3 trainNetwork.py --config_path TRAIN_CONFIG --test_path TEST_CONFIG --pc_encoder_path PRETRAINED_ENCODER --n_way 1 --n_shot [1-32] --num_cluster 1 --aggreage mean --name EXP_NAME
 
 # Concrete
-CUDA_VISIBLE_DEVICES=0 python3 trainNetwork.py --config modelnet_train.txt --test_path modelnet_test.txt --pc_encoder ../checkpoint/pretrain_pointnet/pretrained_pcencoder_pointnet.pt --n_way 1 --n_shot 32 --n_query 5 --num_cluster --epoch 400 --lr 0.0001 --aggregate mean --name modelnet_mean
+CUDA_VISIBLE_DEVICES=0 python3 trainNetwork.py --config modelnet_train.txt --test_path modelnet_test.txt --pc_encoder_path ../checkpoint/pretrain_pointnet/pretrained_pcencoder_pointnet.pt --n_way 1 --n_shot 32 --n_query 5 --num_cluster --epoch 400 --lr 0.0001 --aggregate mean --name modelnet_mean
 ```
 
 - There are more hyper parameter options, please refer to the source code for more detail

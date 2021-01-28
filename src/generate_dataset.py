@@ -56,6 +56,7 @@ def main(opt):
     img_root = opt.img_path
     pc_root = opt.pc_path
     dataset = opt.dataset
+    shapenet_flag = dataset == 'shapenet'
 
     # if dataset == 'modelnet' -> Image dir format: root / <label> / <train/test> / <item> / <view>.png
     train_imgs, test_imgs = list(), list()
@@ -124,8 +125,8 @@ def main(opt):
     train_file_path = opt.output + f'{dataset}_train.txt'
     test_file_path = opt.output + f'{dataset}_test.txt'
 
-    write2file(train_file_path, None, train_pcs, True)
-    write2file(test_file_path, None, test_pcs, True)
+    write2file(train_file_path, None, train_pcs, shapenet_flag)
+    write2file(test_file_path, None, test_pcs, shapenet_flag)
 
     pass
 
