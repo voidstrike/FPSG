@@ -25,7 +25,7 @@ TRAIN_SET_DIC = {
 #    'modelnet': ['airplane', 'bed', 'bookshelf', 'chair', 'desk', 'dresser', 'glass_box', 'monitor', 'person', 'plant', 'range_hood',
 #    'sofa', 'stool', 'tent', 'tv_stand', 'wardrobe', 'bathtub', 'bench', 'bottle', 'car', 'cone', 'curtain', 'flower_pot', 'guitar', 'lamp', 'mantel',
 #    'night_stand', 'piano', 'radio', 'sink', 'stairs', 'table', 'toilet', 'vase', 'xbox'],
-     'modelnet': ['airplane', 'bathtub', 'bed', 'chair', 'desk', 'dresser', 'monitor', 'sofa', 'table', 'toilet']，
+     'modelnet': ['airplane', 'bathtub', 'bed', 'chair', 'desk', 'dresser', 'monitor', 'sofa', 'table', 'toilet'],
     # 'modelnet': ['airplane', 'bed']
     'shapenet': ['airplane', 'camera', 'car', 'clock', 'chair', 'faucet', 'printer', 'rocket']
 }
@@ -62,6 +62,9 @@ def main(opt):
     train_imgs, test_imgs = list(), list()
     train_pcs, test_pcs = list(), list()
     tmp_imgs, tmp_pcs = list(), list()
+    
+    train_file_path = opt.output + f'{dataset}_train.txt'
+    test_file_path = opt.output + f'{dataset}_test.txt'
 
     if dataset == 'modelnet':
         for label in os.listdir(img_root):
@@ -92,6 +95,8 @@ def main(opt):
             if label in TEST_SET_DIC[dataset] or label in TRAIN_SET_DIC[dataset]:
                 classes_file = opt.output + f'extra_files/{dataset}+{label}.txt'
                 write2file(classes_file, tmp_imgs, tmp_pcs)
+        write2file(train_file_path, train_imgs, train_pcs)
+        write2file(test_file_path, test_imgs, test_pcs)
     else:
         _shape_train = [_SHAPENET_NAME2ID[idx] for idx in TRAIN_SET_DIC[dataset]]
         _shape_test = [_SHAPENET_NAME2ID[idx] for idx in TEST_SET_DIC[dataset]]
@@ -121,12 +126,8 @@ def main(opt):
             classes_file = opt.output + f'extra_files_v2/{dataset}+{label}.txt'
             write2file(classes_file, None, tmp_items, shapenet=True)
 
-
-    train_file_path = opt.output + f'{dataset}_train.txt'
-    test_file_path = opt.output + f'{dataset}_test.txt'
-
-    write2file(train_file_path, None, train_pcs, shapenet_flag)
-    write2file(test_file_path, None, test_pcs, shapenet_flag)
+        write2file(train_file_path, None, train_pcs, False)
+        write2file(test_file_path, None, test_pcs, False)
 
     pass
 
