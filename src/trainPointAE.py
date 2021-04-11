@@ -1,6 +1,7 @@
 import argparse
 import torch
 import os
+import time
 
 import torch.optim as optim
 import torch.optim.lr_scheduler as lr_scheduler
@@ -8,8 +9,6 @@ import torch.nn as nn
 import torchvision.transforms as tfs
 
 from datasets.mv_dataset import MultiViewDataSet
-from metrics.evaluation_metrics import distChamferCUDA
-from pointnet.model import PointNetfeat
 from torch.utils.data import DataLoader
 from torch.autograd import Variable
 
@@ -17,25 +16,33 @@ from models.point_cloud_net import PCEncoder
 from models.support_models import AuxClassifier
 from tqdm import tqdm
 
-# Dummy transformation for MV_DATASET
-_modelnet_tfs = tfs.Compose([
-    tfs.CenterCrop(550),
-    tfs.Resize(224),
-    tfs.ToTensor(),
-    tfs.Normalize((.5, .5, .5), (.5, .5, .5))
-])
+def _build_tfs(model_name):
+    ans = tfs.Compose([
+        tfs.CenterCrop(224 if model_name=='modelnet' else 256),
+        tfs.Resize(224),
+        tfs.ToTensor(),
+        tfs.Normalize((.5, .5, .5), (.5, .5, .5))
+    ])
+    return ans
+
+_MODEL_TFS, _SHAPE_TFS = _build_tfs('modelnet'), _build_tfs('shapenet')
 
 def main(opt):
     # Load Basic configuration
-    checkpoint_path = os.path.join(opt.model_path, opt.name)
     root, ply_root = opt.root, opt.proot
+
+    # Make checkpoint folder
+    timestamp = time.strftime('%m_%d_%H_%M')
+    checkpoint_path = os.path.join(opt.model_path, opt.name)
+    checkpoint_imgs = os.path.join(checkpoint_path, 'images')
+    checkpoint_logs = os.path.join(checkpoint_path, f'log_{timestamp}.txt')
 
     if not os.path.exists(checkpoint_path):
         os.mkdir(checkpoint_path)
 
     # Load Datasets
-    mv_ds = MultiViewDataSet(root, ply_root, 'train', transform=_modelnet_tfs, sub_cat=None, number_of_view=1, data_augment=True)
-    mv_ds_test = MultiViewDataSet(root, ply_root, 'test', transform=_modelnet_tfs, sub_cat=None, number_of_view=1)
+    mv_ds = MultiViewDataSet(root, ply_root, 'train', transform=_MODEL_TFS, sub_cat=None, number_of_view=1, data_augment=False)
+    mv_ds_test = MultiViewDataSet(root, ply_root, 'test', transform=_MODEL_TFS, sub_cat=None, number_of_view=1)
 
     print('Avaiable Classes are:')
     print(mv_ds.class_to_idx)
@@ -45,6 +52,7 @@ def main(opt):
     
     # Initialize the model & optimizer
     model = PCEncoder(core='pointnet')
+
     classifier = AuxClassifier(1024, 40)
     # criterion = nn.CrossEntropyLoss()
     criterion = nn.NLLLoss()
@@ -61,7 +69,7 @@ def main(opt):
     classifier.cuda()
 
     model.train()
-    for epoch in range(1, 101):
+    for epoch in range(1, 151):
         # Track running performance
         running_loss = 0.
         running_acc = 0.
@@ -91,7 +99,7 @@ def main(opt):
             tmp_loss = 0.
             ttl_acc = 0.
             with torch.no_grad():
-                for _, pcs, _, label in tqdm(ds_loader_test, desc='Epoch {:d} training'.format(epoch)):
+                for _, pcs, _, label in tqdm(ds_loader_test, desc='Epoch {:d} evaluating'.format(epoch)):
                     pcs = Variable(pcs.transpose(2, 1).cuda())
                     label = Variable(label.cuda())
 
@@ -122,7 +130,7 @@ if __name__ == '__main__':
     parser.add_argument('--proot', type=str, required=True, help="Path to the ply")
 
     # Parameters for training:
-    parser.add_argument('--epoch', type=int ,default=250, help='Number of epochs to training (default: 1000)')
+    parser.add_argument('--epoch', type=int ,default=150, help='Number of epochs to training (default: 150)')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning Rate')
     parser.add_argument('--lr_decay', type=float, default=40, help='Decay learning rate every LR_DECAY epoches')
     parser.add_argument('--core', type=str, default='pointnet', help='The core of the PCEncoder')
@@ -130,7 +138,7 @@ if __name__ == '__main__':
     # Experiment parameters: EXP_NAME, checkpoint path, etc.
     parser.add_argument('--name', type=str, default='pretrain_pointnet', help='Experiment Name')
     parser.add_argument('--dir_name', type=str, default='', help='Name of the log folder')
-    parser.add_argument('--model_path', type=str, default='/home/yulin/Few_shot_point_cloud_reconstruction/checkpoint')
+    parser.add_argument('--model_path', type=str, default='../checkpoint')
     parser.add_argument('--save_interval', type=int, default=20, help='Save Interval')
     parser.add_argument('--val_interval', type=int, default=10, help='Test Interval')
     parser.add_argument('--batch_size', type=int, default=32, help='Batch_size')

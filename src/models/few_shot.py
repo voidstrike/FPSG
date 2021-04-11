@@ -6,64 +6,73 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.autograd import Variable
-from .utils import euclidean_dist, build_pc_proto
-from metrics.evaluation_metrics import distChamferCUDA, distChamfer, emd_approx
+from .utils import euclidean_dist, build_pc_proto, emd_wrapper
+# from metrics.evaluation_metrics import distChamferCUDA, distChamfer, emd_approx
 from .visualization import visualize_point_clouds
 
+# Updated cd & emd implementation
+from kaolin.metrics.pointcloud import chamfer_distance
+
 _ZERO_HOLDER = torch.FloatTensor([0.]).cuda()
-_PRESET_AGGREGATE = ['mean', 'full', 'mask_s', 'mask_m']
-
-class Flatten(nn.Module):
-    def __init__(self):
-        super(Flatten, self).__init__()
-
-    def forward(self, x):
-        return x.view(x.size(0), -1)
+_AGGREGATOR = ['single', 'multi', 'mask_single', 'mask_multi']
 
 # Main Network
 class ImgPCProtoNet(nn.Module):
-    def __init__(self, img_encoder, pc_encoder, pc_decoder, mask_allocater=None, recon_factor=1.0, pc_metrics='cd', intra_support_training=False, aggregate='mean'):
+    """
+    Core Universial Network
+    """
+    def __init__(self, img_encoder, pc_encoder, pc_decoder, mask_learner=None, recon_factor=1.0, metric='cd', intra_support=False, aggregate='single'):
+        """
+        Args:
+            img_encoder (nn.Module): The image encoder
+            pc_encoder (nn.Module): The point cloud encoder
+            pc_decoder (nn.Module): The point cloud decoder
+            mask_learner (nn.Module): An optional nn.Module that learns the prototype mask [default: None]
+            recon_factor (float): The weight factor of loss between support & query set [default: 1]
+            metric (str): The training metric ('cd' or 'emd') [default: cd]
+            intra_support (bool): The flag to use intra_support_training mode [default: False]
+            aggregate (str): The aggregator of prototypes ('single', 'multi', 'mask_single', 'mask_multi') [default: 'single']
+        """
         super(ImgPCProtoNet, self).__init__()
 
         # Network components
         self.img_encoder = img_encoder
         self.pc_encoder = pc_encoder
         self.pc_decoder = pc_decoder
-        self.mask_allocater = mask_allocater
+        self.mask_allocater = mask_learner
 
         # Training parameters (factors & flags)
         self.recon_factor = recon_factor 
-        self.intra_flag = intra_support_training
+        self.intra_flag = intra_support
 
-        if aggregate in _PRESET_AGGREGATE:
+        if aggregate in _AGGREGATOR:
             self.aggregate = aggregate
         else:
             raise NotImplementedError(f'Found unsupported prototype aggragation: {aggregate}')
 
         # Loss functions
-        if pc_metrics == 'cd':
-            self.pc_metric = distChamferCUDA
-        elif pc_metrics == 'emd':
-            self.pc_metric = emd_approx
+        if metric == 'cd':
+            self.metric_module = None
+            self.pc_metric = chamfer_distance
+        elif metric == 'emd':
+            self.pc_metric = self.emd_wrapper
         else:
-            raise NotImplementedError(f'Found unsupported point cloud reconstruction metrics: {pc_metrics}')
+            raise NotImplementedError(f'Found unsupported point cloud reconstruction metrics: {metric}')
 
-    def loss(self, sample, emd_flag=False):
+    def loss(self, sample):
         # Gather input
         xs, xq, pcs, pcq = Variable(sample['xs']), Variable(sample['xq']), Variable(sample['pcs']), Variable(sample['pcq'])
 
-        if 1 == xs.size(0):
-            return self._loss_single_class(xs, xq, pcs, pcq, emd_flag=emd_flag)
-        else:
-            return self._loss_multiple_class(xs, xq, pcs, pcq)
+        assert 1 == xs.size(0), 'Only support single-class for now'
+        return self._loss_single_class(xs, xq, pcs, pcq)
 
-    def _loss_single_class(self, img_s, img_q, pc_s, pc_q, emd_flag=False):
+    def _loss_single_class(self, img_s, img_q, pc_s, pc_q):
         # Single class reconstruct
         n_class, n_support, n_query = 1, img_s.size(1), img_q.size(1)
 
         ans = dict()
 
-        # Prepare features 
+        # Combine support & query feature for faster inference
         img_corpus = torch.cat([img_s.view(n_class * n_support, *img_s.size()[2:]), img_q.view(n_class * n_query, *img_q.size()[2:])], 0)
         pc_corpus = pc_s.view(n_class * n_support, *pc_s.size()[2:]).transpose(2, 1)
 
@@ -72,32 +81,26 @@ class ImgPCProtoNet(nn.Module):
         img_z_dim = img_z.size(-1)
         img_zs, img_zq = img_z[:n_class * n_support], img_z[n_class * n_support:]
 
-        # PC feat
+        # Compute class-specific point cloud prototype
         pc_z = self.pc_encoder(pc_corpus)
         pc_z_dim = pc_z.size(-1)
         pc_z_proto = pc_z.view(n_class, n_support, pc_z_dim)
 
-        pc_z_proto = self._prototype_aggregate(pc_z_proto)
-        proto_mat_q = self._build_final_input(img_zq, pc_z_proto)
+        pc_z_proto = pc_z_proto.mean(1)  #  1 * 1 * 1024
+        proto_mat_q = pc_z_proto.squeeze(0).repeat(n_query, 1)
 
-        ref_pc_q = pc_corpus.transpose(2, 1).contiguous()
-        syn_pc = self.pc_decoder(img_zq, proto_mat_q)
+        # ref_pc_q = pc_corpus.transpose(2, 1).contiguous()
+        syn_pc = self.pc_decoder(torch.cat([img_zq, proto_mat_q], dim=1))
 
-        gen2gr, gr2gen = self.pc_metric(syn_pc, ref_pc_q)
-        loss_rec_q = (gen2gr.mean(1) + gr2gen.mean(1)).sum()
-
-        if emd_flag:
-            emd_rec_q = emd_approx(syn_pc, ref_pc_q).sum()
-            ans['query_emd'] = emd_rec_q
+        ref_pc_q = pc_q.squeeze(0)
+        loss_rec_q = self.pc_metric(syn_pc, ref_pc_q).sum()
 
         if self.intra_flag:
-            proto_mat_s = self._build_final_input(img_zs, pc_z_proto)
+            proto_mat_s = pc_z_proto.squeeze(0).repeat(n_support, 1)
+            syn_pc = self.pc_decoder(torch.cat([img_zs, proto_mat_s], dim=1))
 
-            ref_pc_s = pc_s
-            syn_pc = self.pc_decoder(img_zs, proto_mat_s)
-
-            gen2gr, gr2gen = self.pc_metric(syn_pc, ref_pc_s)
-            loss_rec_s = (gen2gr.mean(1) + gr2gen.mean(1)).sum()
+            ref_pc_s = pc_s.squeeze(0)
+            loss_rec_s = self.pc_metric(syn_pc, ref_pc_s).sum()
         else:
             loss_rec_s = _ZERO_HOLDER
             
@@ -111,23 +114,20 @@ class ImgPCProtoNet(nn.Module):
 
         return ans
 
-    def _loss_multiple_class(self, img_s, img_q, pc_s, pc_q):
-        pass
-
     def _prototype_aggregate(self, proto_vec):
-        if self.aggregate in ['mean', 'mask_s']:
+        if self.aggregate in ['single', 'mask_single']:
             proto_corpus = proto_vec.mean(1)  #  1 * 1 * 1024
-        elif self.aggregate in ['full', 'mask_m']:
+        elif self.aggregate in ['multi', 'mask_multi']:
             proto_corpus = proto_vec          #  1 * NP * 1024 (NP=n_support)
         return proto_corpus
 
     def _build_final_input(self, img_z, pc_z):
         n_query = img_z.size(0)
-        if self.aggregate == 'mean':
+        if self.aggregate == 'single':
             out_vec = pc_z.squeeze(0).repeat(n_query, 1).unsqueeze(1)
-        elif self.aggregate == 'full':
+        elif self.aggregate == 'multi':
             out_vec = pc_z.repeat(n_query, 1, 1)
-        elif self.aggregate == 'mask_s':
+        elif self.aggregate == 'mask_single':
             tmp = pc_z.squeeze(0).repeat(n_query, 1)
             mask_vec = torch.cat([img_z, tmp], dim=1)
             mask_vec = self.mask_allocater(mask_vec)

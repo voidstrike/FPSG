@@ -33,6 +33,8 @@ make clean
 make
 ```
 
+4. Alternatively, using the Chamfer Distance from [Kaolin](https://github.com/NVIDIAGameWorks/kaolin) repo. UPDATING
+
 ### Download Datasets
 
 [ModelNet](https://modelnet.cs.princeton.edu/) dataset can be downloaded from [ModelNet_views](https://drive.google.com/file/d/19_aSXKe2xdOCw4_jEXjJcCUrHGl-HlFF/view?usp=sharing) and [ModelNet_pcs](https://drive.google.com/file/d/1XAVg8iZrOyE02cZxGdY1f880A1KBKZuu/view?usp=sharing).

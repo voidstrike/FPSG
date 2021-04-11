@@ -92,7 +92,8 @@ class MultiViewDataSet(Dataset):
             ply_path = os.path.join(os.path.join(ply_root, label), data_type)
             for item in os.listdir(c_path):
                 cc_path = os.path.join(c_path, item)
-                ply_item_path = os.path.join(ply_path, item.replace('.off', '.ply'))
+                # ply_item_path = os.path.join(ply_path, item.replace('.off', '.ply'))
+                ply_item_path = os.path.join(ply_path, f'{item}.ply')
                 views = list()
                 for view in os.listdir(cc_path):
                     views.append(os.path.join(cc_path, view))

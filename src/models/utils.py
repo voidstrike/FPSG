@@ -2,11 +2,16 @@ import torch
 import pymesh
 
 import numpy as np
+import torch.nn as nn
 
 from torch.autograd import Variable
 
+from neuralnet_pytorch.metrics import emd_loss
 
 '''Utility Classes'''
+def emd_wrapper(pc1, pc2):
+    return emd_loss(pc1, pc2, reduce='sum')
+
 class Template(object):
     def get_random_points(self):
         print('Need to be implemented')

@@ -193,7 +193,7 @@ def build_model(opt):
     # Build Model -------------------------------------------
     img_encoder = ImageEncoderWarpper(opt.img_encoder, finetune_layer=3)
     pc_encoder = PCEncoder(opt.pc_encoder)
-    pc_decoder = PCDecoder(configuration=opt, num_prototypes=opt.num_cluster)
+    pc_decoder = PCDecoder(conf=opt)
 
     mask_allocater = None
     if opt.aggregate in ['mask_s', 'mask_m']:
@@ -205,7 +205,7 @@ def build_model(opt):
         print('Pretrained Model exist, loading')
         pc_encoder.load_state_dict(torch.load(pc_encoder_dict_path))
 
-    model = ImgPCProtoNet(img_encoder, pc_encoder, pc_decoder, mask_allocater=mask_allocater,recon_factor=opt.recon_factor, intra_support_training=opt.intra_recon, aggregate=opt.aggregate)
+    model = ImgPCProtoNet(img_encoder, pc_encoder, pc_decoder, mask_learner=mask_allocater,recon_factor=opt.recon_factor, intra_support=opt.intra_recon, aggregate=opt.aggregate)
     return model
 
 if __name__ == '__main__':
@@ -227,23 +227,25 @@ if __name__ == '__main__':
     parser.add_argument('--recon_factor', type=float, default=1.0, help='The weight of reconstruction loss')
     parser.add_argument('--intra_recon', action='store_true', help='Flag to enable intra-support set reconstruction')
     parser.add_argument('--epoch_start_recon', type=int, default=0, help='Epoch to start reconstruction task')
-    parser.add_argument('--num_cluster', type=int, default=1, help='The number of MLP clusters of PC decoder')
+    parser.add_argument('--num_clusters', type=int, default=4, help='The number of MLP clusters of PC decoder')
+    parser.add_argument('--ori_dim', type=int, default=2, help='The dimension of the original surface [default: 2]')
+    parser.add_argument('--raw_dim', type=int, default=3, help='The dimension of the deformed surface [default: 3]')
 
-    parser.add_argument('--num_slaves', type=int, default=16, help='PCDecoder parameter: number of MLP slaves (patches) per MLP cluster'),
+    parser.add_argument('--num_nodes', type=int, default=4, help='PCDecoder parameter: number of MLP slaves (patches) per MLP cluster'),
     parser.add_argument('--device', type=str, default='cuda', help='PCDecoder parameter: cuda')
     parser.add_argument('--bottleneck_size', type=int, default=1536, help='PCDecoder parameter: Bottoleneck size Dim of img_feat + Dim of pc_feat')
-    parser.add_argument('--num_layers', type=int, default=2, help='PCDecoder parameter: 2')
+    # parser.add_argument('--num_layers', type=int, default=2, help='PCDecoder parameter: 2')
     parser.add_argument('--template_type', type=str, default="SQUARE", help='PCDecoder parameter: hidden sampling shape')
-    parser.add_argument('--hidden_neurons', type=int, default=512, help='PCDecoder parameter: number of hidden neurons')
+    # parser.add_argument('--hidden_neurons', type=int, default=512, help='PCDecoder parameter: number of hidden neurons')
     parser.add_argument('--activation', type=str, default='relu', help='PCDecoder parameter: activation function of PCDecoder')
     parser.add_argument('--dim_template', type=int, default=2, help='PCDecoder parameter: 2')
-    parser.add_argument('--aggregate', type=str, default='mean', choices=['mean', 'full', 'mask_s', 'mask_m'])
+    parser.add_argument('--aggregate', type=str, default='single', choices=['single', 'multi', 'mask_single', 'mask_multi'])
 
     # Parameters for training:
     parser.add_argument('--n_episode', type=int, default=100, help='Number of episode per epoch')
-    parser.add_argument('--epoch', type=int ,default=1000, help='Number of epochs to training (default: 10000)')
+    parser.add_argument('--epoch', type=int ,default=10000, help='Number of epochs to training (default: 10000)')
     parser.add_argument('--lr', type=float, default=1e-3, help='Learning Rate')
-    parser.add_argument('--lr_decay', type=float, default=100, help='Decay learning rate every LR_DECAY epoches')
+    parser.add_argument('--lr_decay', type=float, default=200, help='Decay learning rate every LR_DECAY epoches')
     parser.add_argument('--resume', type=int, default=-1, help='Flag to resume training')
     parser.add_argument('--pc_dist', type=str, default='cd', choices=['cd', 'emd'], help='The loss to train the network')
     parser.add_argument('--SGD', action='store_true', help='Flag to use SGD optimizer')
@@ -251,7 +253,7 @@ if __name__ == '__main__':
     # Experiment parameters: EXP_NAME, checkpoint path, etc.
     parser.add_argument('--name', type=str, default='0', help='Experiment Name')
     parser.add_argument('--dir_name', type=str, default='', help='Name of the log folder')
-    parser.add_argument('--model_path', type=str, default='/home/yulin/Few_shot_point_cloud_reconstruction/checkpoint')
+    parser.add_argument('--model_path', type=str, default='../checkpoint')
     parser.add_argument('--save_interval', type=int, default=50, help='Save Interval')
     parser.add_argument('--sample_interval', type=int, default=10, help='Sample Interval')
     parser.add_argument('--eval_interval', type=int, default=20, help='Evaluation Interval')

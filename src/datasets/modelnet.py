@@ -28,6 +28,7 @@ def ply_reader(file_path):
     return vertices
 
 class FewShotSubModelNet(Dataset):
+    """ Temp Class for Single Category """
     def __init__(self, config_path, loader=ply_reader, transform=None, tgt_transform=None, data_argument=False, n_pts=2048):
         super(FewShotSubModelNet, self).__init__()
         self.imgs = list()
@@ -98,16 +99,13 @@ class FewShotModelNet(Dataset):
         self._build_reference()
         
 
-        self.n_way = n_classes
+        self.n_way = 1
         self.n_support = n_support
         self.n_query = n_query
 
-        self.seen_index = [False] * len(self.data_corpus)
-        self.cache = dict()
-
     def __getitem__(self, index):
         img_path, pc_path = self.data_corpus[index].split('\t')
-        data_instance_class = img_path.split('/')[7] # Hard code ?
+        data_instance_class = img_path.split('/')[-4]
 
         query_matrix = {
             'class': data_instance_class,
@@ -117,23 +115,8 @@ class FewShotModelNet(Dataset):
 
         return extract_episode(self.n_support, self.n_query, query_matrix)
 
-        # index = index.item()
-        # if not self.seen_index[index]:
-        #     img_path, pc_path = self.data_corpus[index].split('\t')
-        #     data_instance_class = img_path.split('/')[7] # Hard code ?
-
-        #     query_matrix = {
-        #         'class': data_instance_class,
-        #         'img_data': self.reference[data_instance_class]['imgs'],
-        #         'pc_data': self.reference[data_instance_class]['pcs'],
-        #     }
-
-        #     self.cache[index] = extract_episode(self.n_support, self.n_query, query_matrix)
-        #     self.seen_index[index] = True
-        # return self.cache[index]
-
     def _build_reference(self):
-        assert self.auxiliary_dir is not None, 'Auxiliary folder is not available!!!'
+        assert self.auxiliary_dir is not None, 'Auxiliary folder is not generated yet!!!'
 
         for eachFile in os.listdir(self.auxiliary_dir):
             if not eachFile.endswith('.txt'):
@@ -150,6 +133,5 @@ class FewShotModelNet(Dataset):
                 self.reference[class_name]['pcs'] = stacked_pc
                 break # Follow the protonet, only need one sample because batch_size equal to the dataset length
 
-        
     def __len__(self, ):
         return len(self.data_corpus)
