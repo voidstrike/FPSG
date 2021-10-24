@@ -18,6 +18,8 @@ Experiment results demonstrate the superior performance of the proposed method.
 
 <img src='imgs/overview.png'>
 
+There are three branches from top to bottom: 1) Image branch, 2) Class-specific shape prior branch and 3) Class-agnostic shape prior branch.
+
 ## Getting Started
 ### Installation
 
