@@ -1,5 +1,6 @@
 import os
 import torch
+import collections
 
 import torchvision.transforms as tfs
 import numpy as np
@@ -86,15 +87,18 @@ class FewShotModelNet(Dataset):
         super(FewShotModelNet, self).__init__()
 
         # Store the img_path & ply path for every data point
+        print(f'Reading configuration from {config_path} ...')
         self.data_corpus = list()
         with open(config_path, 'r') as f:
             for eachItem in f.readlines():
                 self.data_corpus.append(eachItem.rstrip('\n'))
+        self.item_len = len(self.data_corpus)
 
         self.tfs, self.tgt_tfs = transform, tgt_transform
 
         # Store the img_path & ply path for a specific class -- faster access
-        self.reference = dict()
+        # self.reference = dict()
+        self.reference = collections.defaultdict(dict)
         self.auxiliary_dir = auxiliary_dir
         self._build_reference()
         
@@ -113,25 +117,40 @@ class FewShotModelNet(Dataset):
             'pc_data': self.reference[data_instance_class]['pcs'],
         }
 
-        return extract_episode(self.n_support, self.n_query, query_matrix)
+        ans = extract_episode(self.n_support, self.n_query, query_matrix) # Original episode
+        # tgt_path = self.reference[data_instance_class]['imgs'][ans['tmp']]
+        # print(f'{index}: {tgt_path}')
 
-    def _build_reference(self):
+        example_idx = torch.randperm(self.item_len)[:self.n_support] # Adding additional img-pc pairs to avoid model collapse
+        ans['xad'] = self.img_corpus[example_idx]
+        ans['pcad'] = self.pc_corpus[example_idx]
+
+        return ans
+
+    def _build_reference(self, ):
         assert self.auxiliary_dir is not None, 'Auxiliary folder is not generated yet!!!'
+        tmp_img_list, tmp_pc_list = list(), list()
 
         for eachFile in os.listdir(self.auxiliary_dir):
             if not eachFile.endswith('.txt'):
                 continue
 
             class_name = eachFile.split('.')[0].split('+')[1]
-            self.reference[class_name] = dict()
+            # self.reference[class_name] = dict()
 
+            print(f'Building Reference dataset for {class_name} ...')
             class_ds = FewShotSubModelNet(os.path.join(self.auxiliary_dir, eachFile), transform=self.tfs, tgt_transform=self.tgt_tfs)
             loader = DataLoader(class_ds, batch_size=len(class_ds), shuffle=False)
 
             for stacked_img, stacked_pc in loader:
                 self.reference[class_name]['imgs'] = stacked_img
                 self.reference[class_name]['pcs'] = stacked_pc
+                tmp_img_list.append(stacked_img)
+                tmp_pc_list.append(stacked_pc)
                 break # Follow the protonet, only need one sample because batch_size equal to the dataset length
+
+        self.img_corpus = torch.cat(tmp_img_list, dim=0)
+        self.pc_corpus = torch.cat(tmp_pc_list, dim=0)
 
     def __len__(self, ):
         return len(self.data_corpus)

@@ -6,8 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from torch.autograd import Variable
-from .utils import euclidean_dist, build_pc_proto, emd_wrapper
-# from metrics.evaluation_metrics import distChamferCUDA, distChamfer, emd_approx
+from .utils import emd_wrapper
 from .visualization import visualize_point_clouds
 
 # Updated cd & emd implementation
@@ -21,14 +20,15 @@ class ImgPCProtoNet(nn.Module):
     """
     Core Universial Network
     """
-    def __init__(self, img_encoder, pc_encoder, pc_decoder, mask_learner=None, recon_factor=1.0, metric='cd', intra_support=False, aggregate='single'):
+    def __init__(self, img_encoder, pc_encoder, pc_decoder, mask_learner=None, query_factor=1.0, support_factor=1.0, metric='cd', intra_support=False, aggregate='single'):
         """
         Args:
             img_encoder (nn.Module): The image encoder
             pc_encoder (nn.Module): The point cloud encoder
             pc_decoder (nn.Module): The point cloud decoder
             mask_learner (nn.Module): An optional nn.Module that learns the prototype mask [default: None]
-            recon_factor (float): The weight factor of loss between support & query set [default: 1]
+            query_factor (float): The weight factor of query set loss [default: 1]
+            support_factor (float): The weight factor of AD support set loss [default: 1]
             metric (str): The training metric ('cd' or 'emd') [default: cd]
             intra_support (bool): The flag to use intra_support_training mode [default: False]
             aggregate (str): The aggregator of prototypes ('single', 'multi', 'mask_single', 'mask_multi') [default: 'single']
@@ -42,7 +42,8 @@ class ImgPCProtoNet(nn.Module):
         self.mask_allocater = mask_learner
 
         # Training parameters (factors & flags)
-        self.recon_factor = recon_factor 
+        self.query_factor = query_factor
+        self.support_factor = support_factor
         self.intra_flag = intra_support
 
         if aggregate in _AGGREGATOR:
@@ -63,49 +64,62 @@ class ImgPCProtoNet(nn.Module):
         # Gather input
         xs, xq, pcs, pcq = Variable(sample['xs']), Variable(sample['xq']), Variable(sample['pcs']), Variable(sample['pcq'])
 
-        assert 1 == xs.size(0), 'Only support single-class for now'
-        return self._loss_single_class(xs, xq, pcs, pcq)
+        # NOTE: following 2 options are interchangeable
 
-    def _loss_single_class(self, img_s, img_q, pc_s, pc_q):
-        # Single class reconstruct
-        n_class, n_support, n_query = 1, img_s.size(1), img_q.size(1)
+        # xad, pcad = xs, pcs  # Option 1
+        xad, pcad = Variable(sample['xad']), Variable(sample['pcad'])  # Option 2
+        
 
+        return self._loss_single_class(xs, xq, xad, pcs, pcq, pcad)
+
+    def _loss_single_class(self, img_s, img_q, img_ad, pc_s, pc_q, pc_ad):
+        # 1-way-k-shot forward
+
+        # Basic parameters
+        n_support, n_query = img_s.size(1), img_q.size(1)
         ans = dict()
 
-        # Combine support & query feature for faster inference
-        img_corpus = torch.cat([img_s.view(n_class * n_support, *img_s.size()[2:]), img_q.view(n_class * n_query, *img_q.size()[2:])], 0)
-        pc_corpus = pc_s.view(n_class * n_support, *pc_s.size()[2:]).transpose(2, 1)
+        # Combine support & query & aux feature for faster inference
+        # Images -- ad set + query set
+        img_corpus = torch.cat([
+            img_ad.view(n_support, *img_ad.size()[2:]),
+            img_q.view(n_query, *img_q.size()[2:]),
+            ], dim=0)
 
-        # Img feat
+        # Image features
         img_z = self.img_encoder(img_corpus)
-        img_z_dim = img_z.size(-1)
-        img_zs, img_zq = img_z[:n_class * n_support], img_z[n_class * n_support:]
+        img_zad, img_zq = img_z[:n_support], img_z[n_support:]
 
-        # Compute class-specific point cloud prototype
+        # Point clouds -- support set + ad set
+        pc_corpus = torch.cat([
+            pc_s.view(n_support, *pc_s.size()[2:]),
+            pc_ad.view(n_support, *pc_ad.size()[2:]),
+        ], dim=0).transpose(2, 1)
+    
+        # Point cloud features
         pc_z = self.pc_encoder(pc_corpus)
-        pc_z_dim = pc_z.size(-1)
-        pc_z_proto = pc_z.view(n_class, n_support, pc_z_dim)
+        pc_z_proto = pc_z[:n_support]
+        pc_z_ad = pc_z[n_support:]
 
-        pc_z_proto = pc_z_proto.mean(1)  #  1 * 1 * 1024
-        proto_mat_q = pc_z_proto.squeeze(0).repeat(n_query, 1)
+        pc_z_q = pc_z_proto.mean(0, keepdim=True)  #  class-specific shape prior feature
+        proto_mat_q = pc_z_q.repeat(n_query, 1)
 
-        # ref_pc_q = pc_corpus.transpose(2, 1).contiguous()
         syn_pc = self.pc_decoder(torch.cat([img_zq, proto_mat_q], dim=1))
 
         ref_pc_q = pc_q.squeeze(0)
         loss_rec_q = self.pc_metric(syn_pc, ref_pc_q).sum()
 
         if self.intra_flag:
-            proto_mat_s = pc_z_proto.squeeze(0).repeat(n_support, 1)
-            syn_pc = self.pc_decoder(torch.cat([img_zs, proto_mat_s], dim=1))
+            proto_mat_s = pc_z_ad
+            syn_pc = self.pc_decoder(torch.cat([img_zad, proto_mat_s], dim=1))
 
-            ref_pc_s = pc_s.squeeze(0)
+            ref_pc_s = pc_ad.squeeze(0)
             loss_rec_s = self.pc_metric(syn_pc, ref_pc_s).sum()
         else:
             loss_rec_s = _ZERO_HOLDER
             
-        loss_recon = loss_rec_q + self.recon_factor * loss_rec_s
-        ttl_loss = loss_recon
+        loss_recon = self.query_factor * loss_rec_q + self.support_factor * loss_rec_s
+        ttl_loss = loss_recon  # TODO: Legacy return issue
 
         ans['ttl_loss'] = ttl_loss
         ans['recon_loss'] = loss_recon
@@ -114,50 +128,64 @@ class ImgPCProtoNet(nn.Module):
 
         return ans
 
-    def _prototype_aggregate(self, proto_vec):
-        if self.aggregate in ['single', 'mask_single']:
-            proto_corpus = proto_vec.mean(1)  #  1 * 1 * 1024
-        elif self.aggregate in ['multi', 'mask_multi']:
-            proto_corpus = proto_vec          #  1 * NP * 1024 (NP=n_support)
-        return proto_corpus
+    def _return_reconstruction(self, sample):
+        img_s, img_q, pc_s, pc_q = Variable(sample['xs']), Variable(sample['xq']), Variable(sample['pcs']), Variable(sample['pcq'])
+        img_ad, pc_ad = Variable(sample['xad']), Variable(sample['pcad'])
+        n_class, n_support, n_query = 1, img_s.size(1), img_q.size(1)
+        ans = dict()
 
-    def _build_final_input(self, img_z, pc_z):
-        n_query = img_z.size(0)
-        if self.aggregate == 'single':
-            out_vec = pc_z.squeeze(0).repeat(n_query, 1).unsqueeze(1)
-        elif self.aggregate == 'multi':
-            out_vec = pc_z.repeat(n_query, 1, 1)
-        elif self.aggregate == 'mask_single':
-            tmp = pc_z.squeeze(0).repeat(n_query, 1)
-            mask_vec = torch.cat([img_z, tmp], dim=1)
-            mask_vec = self.mask_allocater(mask_vec)
+        # Combine support & query & aux feature for faster inference
+        # Imgs -- ad set + query set
+        img_corpus = torch.cat([
+            img_ad.view(n_support, *img_ad.size()[2:]),
+            img_q.view(n_query, *img_q.size()[2:]),
+            ], dim=0)
 
-            out_vec = (tmp * mask_vec).unsqueeze(1)
-        else:
-            n_np = pc_z.size(1)
+        # Img feat
+        img_z = self.img_encoder(img_corpus)
+        # img_z_dim = img_z.size(-1)
+        img_zad, img_zq = img_z[:n_support], img_z[n_support:]
 
-            tmp_img = img_z.unsqueeze(1).repeat(1, n_np, 1).view(n_query * n_np, -1)
-            tmp_pcz = pc_z.repeat(n_query, 1, 1).view(n_query * n_np, -1)
+        # PCs -- support set + ad set
+        pc_corpus = torch.cat([
+            pc_s.view(n_support, *pc_s.size()[2:]),
+            pc_ad.view(n_support, *pc_ad.size()[2:]),
+        ], dim=0).transpose(2, 1)
+    
+        # PC feat
+        pc_z = self.pc_encoder(pc_corpus)
+        # pc_z_dim = pc_z.size(-1)
+        pc_z_proto = pc_z[:n_support]
+        pc_z_ad = pc_z[n_support:]
 
-            mask_vec = torch.cat([tmp_img, tmp_pcz], dim=1)
-            mask_vec = self.mask_allocater(mask_vec).view(n_query * n_np, -1)
+        pc_z_q = pc_z_proto.mean(0, keepdim=True)  #  1 * 1024
+        proto_mat_q = pc_z_q.repeat(n_query, 1)
 
-            out_vec = (tmp_pcz * mask_vec).view(n_query, n_np, -1)
+        syn_pc = self.pc_decoder(torch.cat([img_zq, proto_mat_q], dim=1))
 
-        return out_vec
+        ref_pc_q = pc_q.squeeze(0)
+        loss_rec_q = self.pc_metric(syn_pc, ref_pc_q).sum()
+        emd_loss = emd_wrapper(syn_pc, ref_pc_q).sum()
+        loss_recon = self.query_factor * loss_rec_q
+
+        ans['cd_loss'] = loss_recon
+        ans['emd_loss'] = emd_loss
+        # ans['rec_pc'] = syn_pc
+        # ans['raw_pc'] = pc_q
+
+        return ans
 
     
     def draw_reconstruction(self, sample, img_path):
         xs, xq, pcs, pcq = Variable(sample['xs']), Variable(sample['xq']), Variable(sample['pcs']), Variable(sample['pcq'])
         n_class, n_support, n_query = xs.size(0), xs.size(1), xq.size(1)
-
-        ans = dict()
+        ori_tmp_code = sample['tmp'].item()
 
         # Concatenate support set and query set for faster computation
         x = xq.view(n_class * n_query, *xq.size()[2:])
 
         pcs = pcs.view(n_class * n_support, *pcs.size()[2:]).transpose(2, 1)
-        pcq = pcq.view(n_class * n_query, *pcq.size()[2:])
+        pcq = pcq.squeeze(0)
 
         img_z = self.img_encoder.forward(x)
         img_z_dim = img_z.size(-1)
@@ -166,10 +194,10 @@ class ImgPCProtoNet(nn.Module):
         pc_z_dim = pc_z.size(-1)
         pc_z_proto = pc_z.view(n_class, n_support, pc_z_dim)
 
-        pc_z_proto = self._prototype_aggregate(pc_z_proto)
-        proto_mat_q = self._build_final_input(img_z, pc_z_proto)
+        pc_z_proto = pc_z_proto.mean(1)  #  1 * 1 * 1024
+        proto_mat_q = pc_z_proto.squeeze(0).repeat(n_query, 1)
 
-        syn_pc = self.pc_decoder(img_z, proto_mat_q)
+        syn_pc = self.pc_decoder(torch.cat([img_z, proto_mat_q], dim=1))
 
         image_list = list()
         tmp_idx = 0
@@ -178,31 +206,9 @@ class ImgPCProtoNet(nn.Module):
             tmp_idx += 1
 
         res = np.concatenate(image_list, axis=1)
-        imageio.imwrite(img_path, res.transpose((1, 2, 0)))
+        imageio.imwrite(os.path.join(img_path[1], f'{img_path[0]}.png'), res.transpose((1, 2, 0)))
+        npy_output = syn_pc.squeeze(0).cpu().detach().numpy()
+        np.save(os.path.join(img_path[1], f'{img_path[0]}_{ori_tmp_code}.npy'), npy_output)
+        npy_output = pcq.squeeze(0).cpu().detach().numpy()
+        np.save(os.path.join(img_path[1], f'{img_path[0]}_{ori_tmp_code}_gt.npy'), npy_output)
 
-    def get_pc_pairs(self, sample):
-        xs, xq, pcs, pcq = Variable(sample['xs']), Variable(sample['xq']), Variable(sample['pcs']), Variable(sample['pcq'])
-        n_class, n_support, n_query = xs.size(0), xs.size(1), xq.size(1)
-
-        ans = dict()
-
-        # Concatenate support set and query set for faster computation
-        x = xq.view(n_class * n_query, *xq.size()[2:])
-
-        pcs = pcs.view(n_class * n_support, *pcs.size()[2:]).transpose(2, 1)
-        pcq = pcq.view(n_class * n_query, *pcq.size()[2:])
-
-        img_z = self.img_encoder.forward(x)
-        img_z_dim = img_z.size(-1)
-
-        pc_z = self.pc_encoder(pcs)
-        pc_z_dim = pc_z.size(-1)
-        pc_z_proto = pc_z.view(n_class, n_support, pc_z_dim)
-
-        pc_z_proto = self._prototype_aggregate(pc_z_proto)
-        proto_mat_q = self._build_final_input(img_z, pc_z_proto)
-
-        ref_pc_q = pcq.contiguous()
-        syn_pc = self.pc_decoder(img_z, proto_mat_q)
-
-        return syn_pc, ref_pc_q

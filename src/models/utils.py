@@ -10,7 +10,7 @@ from neuralnet_pytorch.metrics import emd_loss
 
 '''Utility Classes'''
 def emd_wrapper(pc1, pc2):
-    return emd_loss(pc1, pc2, reduce='sum')
+    return emd_loss(pc1, pc2, reduce='sum', sinkhorn=True)
 
 class Template(object):
     def get_random_points(self):

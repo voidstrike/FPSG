@@ -52,11 +52,11 @@ def ply_reader(file_path):
     return vertices
 
 
-class MultiViewDataSet(Dataset):
-    def find_classes(self, dir, dir_flag=False):
-        # TODO: merge following code
-        if dir_flag:
-            self.target_label = [d for d in os.listdir(dir) if os.path.isdir(os.path.join(dir, d))]
+class MultiViewDataSetV2(Dataset):
+    def find_classes(self, dir):
+        # classes = [d for d in os.listdir(dir) if os.path.isdir(os.path.join(dir, d))]
+        # classes.sort()
+        # classes_to_idx = {classes[i]: i for i in range(len(classes))}
         classes = self.target_label
         classes.sort()
         classes_to_idx = {classes[i]: i for i in range(len(classes))}
@@ -64,7 +64,7 @@ class MultiViewDataSet(Dataset):
         return classes, classes_to_idx
 
     def __init__(self, root, ply_root, data_type, loader=ply_reader, transform=None, tgt_transform=None,
-                 data_augment=False, sub_cat=None, number_of_view=1, number_of_points=2048):
+                 data_augment=False, sub_cat=None, number_of_view=1, number_of_points=2048, extra_label=None):
         self.x, self.y = list(), list()
         self.z = list()
         self.label = list()
@@ -75,16 +75,20 @@ class MultiViewDataSet(Dataset):
 
         self.loader = loader
         self.data_augment = data_augment
-        
-        dir_flag = sub_cat is None
-        self.target_label = sub_cat if isinstance(sub_cat, list) else [sub_cat]
-        self.classes, self.class_to_idx = self.find_classes(root, dir_flag)
+        if not sub_cat:
+            # self.target_label = ['airplane', 'bathtub', 'bed', 'chair', 'desk', 'dresser', 'monitor', 'sofa', 'table', 'toilet']
+            self.target_label = ['bowl', 'cup', 'door', 'keyboard', 'laptop']
+        else:
+            self.target_label = [sub_cat]
+
+        self.classes, self.class_to_idx = self.find_classes(root)
 
         self.tfs, self.tgt_tfs = transform, tgt_transform
 
         # Current Dataset structure: root / <label> / <train/test> / <item> / <view>.png
         for label in os.listdir(root):
-            if label not in self.target_label:
+            if label != extra_label:
+            # if label not in self.target_label:
                 continue
             print(f'handling {label}')
 
@@ -135,6 +139,7 @@ class MultiViewDataSet(Dataset):
 
         point_set = torch.from_numpy(point_set).contiguous()
 
+        # return views, point_set, self.z[index]
         return views, point_set, self.z[index], self.label[index]
 
     def __len__(self):
@@ -142,17 +147,16 @@ class MultiViewDataSet(Dataset):
 
 
 # Class for ShapeNet 55
-class ShapeNet55(Dataset):
+class ShapeNet55V2(Dataset):
     def __init__(self, root, category, split, transform=None, tgt_transform=None,
-                 data_augment=False, number_of_view=1):
+                 data_augment=False, number_of_view=1, extra_label=None):
         self.root = root
+        # self.item_root = os.path.join(root, category)
+        # self.config = os.path.join(root, '{}_{}.txt'.format(category, split))
         self.num_of_view = number_of_view
         self.tfs, self.tgt_tfs = transform, tgt_transform
         self.data_augment = data_augment
         self.x, self.y, self.z = list(), list(), list()
-
-        if category is None:
-            category = [eachCat for eachCat in synsetid_to_cate.keys()]
 
         if isinstance(category, list):
             self.config = [os.path.join(root, f'{eachCat}_{split}.txt') for eachCat in category]
@@ -164,6 +168,9 @@ class ShapeNet55(Dataset):
             self.classes  =[synsetid_to_cate[category]]
 
         self.class_to_idx = {self.classes[i]: i for i in range(len(self.classes))}
+        self.config = [os.path.join(root, f'{extra_label}_{split}.txt')]
+        self.item_root = [os.path.join(root, extra_label)]
+        self.classes  =[synsetid_to_cate[extra_label]]
 
         for eachConf, eachRoot, eachClass in zip(self.config, self.item_root, self.classes):
             with open(eachConf, 'r') as f:
@@ -172,8 +179,10 @@ class ShapeNet55(Dataset):
                     filename = filename.strip()
                     item_path = os.path.join(os.path.join(eachRoot, filename), 'models')
                     npy_file = os.path.join(item_path, 'npy_file.npy')
+                    # print(npy_file)
                     view_root = os.path.join(item_path, 'images')
                     if not os.path.exists(npy_file):
+                        # print('Error')
                         continue
 
                     views = list()
@@ -229,3 +238,46 @@ class ShapeNet55(Dataset):
 
     def __len__(self):
         return len(self.x)
+
+
+if __name__ == '__main__':
+    # test_root = '/home/yulin/Desktop/modelnet40_views/view/classes/'
+    # ply_root = '/home/yulin/Desktop/ModelNet40_ply'
+    test_root = '/home/yulin/Desktop/ShapeNetCore.v2/'
+    test_cat = '02691156'
+    transform = tfs.Compose([
+        tfs.CenterCrop(550),
+        tfs.Resize(224),
+        tfs.ToTensor(),
+    ])
+    # test_dataset = MultiViewDataSet(test_root, ply_root, 'train', transform=transform, sub_cat='airplane')
+    test_dataset = ShapeNet55(test_root, test_cat, 'train', transform=transform)
+    print(len(test_dataset))
+    test_loader = DataLoader(test_dataset, batch_size=4)
+
+    # # print(len(test_dataset))
+    # from model.FExtractor import MVEncoderV2
+    # from model.Proto import PrototypeCNFV2
+    # # tm = PrototypeCNF(tgt_points=2048, gpu=0).cuda()
+    # tm = MVEncoderV2('resnet18', 3, pre_train=True).cuda()
+    # # tm = PrototypeCNFV2(tgt_points=2048, gpu=0).cuda()
+
+    for i, (inputs, labels, stat) in enumerate(test_loader):
+        if i >= 1:
+            break
+
+        inputs = np.stack(inputs, axis=1)
+        print(inputs.shape)
+        inputs = torch.from_numpy(inputs).cuda()
+        labels = labels.cuda()
+        print(labels.shape)
+
+        # tin = torch.ones((4, 3, 128)).cuda()
+
+        # tout = tm(inputs)
+        # print(tout.shape)
+        # tout = tm.mutlview_forward(inputs, labels)
+        # print(yout.shape)
+        # print(xout.shape)
+        # print(vout.shape)
+        # print(vout.shape)

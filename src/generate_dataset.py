@@ -1,35 +1,25 @@
-import sys
+# import sys
 import os
-
 import argparse
 
-_SHAPENET_ID2NAME = {
-    '02691156': 'airplane',
-    '02880940': 'bowl',
-    '02942699': 'camera',
-    '02958343': 'car',
-    '02992529': 'cellphone',
-    '03001627': 'chair',
-    '03046257': 'clock',
-    '03211117': 'monitor',
-    '03325088': 'faucet',
-    '03593526': 'jar',
-    '03797390': 'mug',
-    '04004475': 'printer',
-    '04099429': 'rocket',
-}
+from datasets.mv_dataset import synsetid_to_cate
+
+
+_SHAPENET_ID2NAME = synsetid_to_cate
 
 _SHAPENET_NAME2ID = {_SHAPENET_ID2NAME[eachKey]: eachKey for eachKey in _SHAPENET_ID2NAME.keys()}
 
+
+# Modify this dictionary for specific category setting (base classes)
 TRAIN_SET_DIC = {
-   'modelnet': ['airplane', 'bed', 'bookshelf', 'chair', 'desk', 'dresser', 'glass_box', 'monitor', 'person', 'plant', 'range_hood',
-   'sofa', 'stool', 'tent', 'tv_stand', 'wardrobe', 'bathtub', 'bench', 'bottle', 'car', 'cone', 'curtain', 'flower_pot', 'guitar', 'lamp', 'mantel',
-   'night_stand', 'piano', 'radio', 'sink', 'stairs', 'table', 'toilet', 'vase', 'xbox'],
-    #  'modelnet': ['airplane', 'bathtub', 'bed', 'chair', 'desk', 'dresser', 'monitor', 'sofa', 'table', 'toilet'],
-    # 'modelnet': ['airplane', 'bed']
+#    'modelnet': ['airplane', 'bed', 'bookshelf', 'chair', 'desk', 'dresser', 'glass_box', 'monitor', 'person', 'plant', 'range_hood',
+#    'sofa', 'stool', 'tent', 'tv_stand', 'wardrobe', 'bathtub', 'bench', 'bottle', 'car', 'cone', 'curtain', 'flower_pot', 'guitar', 'lamp', 'mantel',
+#    'night_stand', 'piano', 'radio', 'sink', 'stairs', 'table', 'toilet', 'vase', 'xbox'],
+     'modelnet': ['airplane', 'bathtub', 'bed', 'chair', 'desk', 'dresser', 'monitor', 'sofa', 'table', 'toilet'],
     'shapenet': ['airplane', 'camera', 'car', 'clock', 'chair', 'faucet', 'printer', 'rocket']
 }
 
+# Modify this dictionary for specific category setting (novel classes)
 TEST_SET_DIC = {
 #     'modelnet': ['cup', 'keyboard', 'tent', 'guitar', 'door', 'xbox', 'stool', 'bowl', 'radio', 'lamp']
     'modelnet': ['cup', 'keyboard', 'door', 'laptop', 'bowl'],
@@ -38,6 +28,9 @@ TEST_SET_DIC = {
 }
 
 def write2file(path, img_corpus, pc_corpus, shapenet=False):
+    '''
+    Helper function that generates TRAIN/TEST config files
+    '''
     ending = '\n'
     if not shapenet:
         with open(path, 'w') as f:
@@ -53,10 +46,12 @@ def write2file(path, img_corpus, pc_corpus, shapenet=False):
                 f.write(pc_path + ending)
 
 def main(opt):
+    '''
+    Create support file for each class and generate configuration file for TRAIN & TEST 
+    '''
     img_root = opt.img_path
     pc_root = opt.pc_path
     dataset = opt.dataset
-    shapenet_flag = dataset == 'shapenet'
 
     # if dataset == 'modelnet' -> Image dir format: root / <label> / <train/test> / <item> / <view>.png
     train_imgs, test_imgs = list(), list()
@@ -75,7 +70,6 @@ def main(opt):
 
                 for item in os.listdir(c_path):
                     cc_path = os.path.join(c_path, item)
-                    # ply_item_path = os.path.join(ply_path, item.replace('.off', '.ply'))
                     ply_item_path = os.path.join(ply_path, f'{item}.ply')
                     views = list()
                     for view in os.listdir(cc_path):
@@ -93,9 +87,12 @@ def main(opt):
                             train_pcs.append(ply_item_path)
                         else:
                             pass
+
+            # NOTE: Create folder "modelnet_files" if it's not exist
             if label in TEST_SET_DIC[dataset] or label in TRAIN_SET_DIC[dataset]:
-                classes_file = opt.output + f'extra_files/{dataset}+{label}.txt'
+                classes_file = opt.output + f'modelnet_files/{dataset}+{label}.txt'
                 write2file(classes_file, tmp_imgs, tmp_pcs)
+
         write2file(train_file_path, train_imgs, train_pcs)
         write2file(test_file_path, test_imgs, test_pcs)
     else:
@@ -114,8 +111,6 @@ def main(opt):
                             item_path = os.path.join(os.path.join(item_root, filename), 'models')
                             train_pcs.append(item_path)
                             tmp_items.append(item_path)
-                            # npy_file = os.path.join(item_path, 'npy_file.npy')
-                            # view_root = os.path.join(item_path, 'images')
                 if label in _shape_test:
                     with open(file_path, 'r') as f:
                         for eachLine in f.readlines():
@@ -124,11 +119,12 @@ def main(opt):
                             test_pcs.append(item_path)
                             tmp_items.append(item_path)
 
-            classes_file = opt.output + f'extra_files_v2/{dataset}+{label}.txt'
+            # NOTE: Create folder "shapenet_files" if it's not exist
+            classes_file = opt.output + f'shapenet_files/{dataset}+{label}.txt'
             write2file(classes_file, None, tmp_items, shapenet=True)
 
-        write2file(train_file_path, None, train_pcs, False)
-        write2file(test_file_path, None, test_pcs, False)
+        write2file(train_file_path, None, train_pcs, True)
+        write2file(test_file_path, None, test_pcs, True)
 
     pass
 
@@ -136,10 +132,10 @@ def main(opt):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--img_path', type=str, required=True, help='Path to the image directory')
-    parser.add_argument('--pc_path', type=str, required=True, help='Path to the pc directory')
-    parser.add_argument('--dataset', type=str, required=True, choices=['modelnet', 'shapenet'], help='Type of the dataset')
-    parser.add_argument('--output', type=str, default='./', help='Root path of the test_split')
+    parser.add_argument('--img_path', type=str, required=True, help='Path to the image directory;')
+    parser.add_argument('--pc_path', type=str, required=True, help='Path to the pc directory [Could be any string if dataset is shapenet];')
+    parser.add_argument('--dataset', type=str, required=True, choices=['modelnet', 'shapenet'], help='Type of the dataset;')
+    parser.add_argument('--output', type=str, default='./', help='Root path of the test_split [default: ./];')
 
     conf = parser.parse_args()
     main(conf)

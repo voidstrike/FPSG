@@ -23,12 +23,10 @@ def extract_episode(n_support, n_query, d):
         'xs': imgs,
         'xq': imgq,
         'pcs': pcs,
-        'pcq': pcq
+        'pcq': pcq,
+        'tmp': query_idx.item()
     }
-
-def stable_episode_extract():
-    #TODO
-    pass
+    
 
 class EpisodicBatchSampler(object):
     def __init__(self, n_classes, n_way, n_episodes):
@@ -45,6 +43,18 @@ class EpisodicBatchSampler(object):
 
 
 class SequentialBatchSampler(object):
+    def __init__(self, n_classes):
+        self.n_classes = n_classes
+
+    def __len__(self,):
+        return self.n_classes
+
+    def __iter__(self,):
+        for i in range(self.n_classes):
+            yield torch.LongTensor([i])
+
+
+class SequentialBatchSamplerV2(object):
     def __init__(self, n_classes):
         self.n_classes = n_classes
 
