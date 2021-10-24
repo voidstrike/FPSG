@@ -37,15 +37,13 @@ git clone https://github.com/voidstrike/FPSG.git
 ### Download Datasets
 
 [ModelNet](https://modelnet.cs.princeton.edu/) dataset can be downloaded from [ModelNet_views](https://drive.google.com/file/d/19_aSXKe2xdOCw4_jEXjJcCUrHGl-HlFF/view?usp=sharing) and [ModelNet_pcs](https://drive.google.com/file/d/1XAVg8iZrOyE02cZxGdY1f880A1KBKZuu/view?usp=sharing).
-Unzip the downloaded file to your preferred directory.
+Unzip the downloaded file to your preferred directory. The 2D projections of ModelNet are from [MVCNN](https://github.com/suhangpro/mvcnn)
 
-The 2D projections of ModelNet are from [MVCNN](https://github.com/suhangpro/mvcnn)
-
-For the [ShapeNet](https://www.shapenet.org/) dataset, please download the dataset from their website and render it via Blender. We provide `src/view_generator.py` and `src/train_test_split.py` for the image generation and TRAIN/TEST split, respectively. Corresponding `phong.py` and `background.png` are also attached, please note that the provided code is compatible with Blender v.g2.79
+For the [ShapeNet](https://www.shapenet.org/) dataset, please download the dataset from their website and render it via Blender. We provide `src/view_generator.py` and `src/train_test_split.py` for the image generation and TRAIN/TEST split, respectively. Corresponding `phong.py` and `background.png` are also attached, please note that the provided code is compatible with Blender v2.79
 
 ### Run Experiments
 
-Use ModelNet for example.
+Take ModelNet for example.
 
 - Prepare the dataset (you will get two files: `modelnet_train.txt` and `modelnet_test.txt`, and one folder `modelnet_files/` with auxiliary files ). Please check the source code if you want to use different set of classes (categories)
 ```
@@ -63,7 +61,7 @@ CUDA_VISIBLE_DEVICES=0 python3 trainNetwork.py --config modelnet_train.txt --tes
 
 - Noted that we use the PRETRAINED_ENCODER in the command, you can also train such an encoder by running `src/trainPointAE.py`, classes (categories) are also specified in the source code.
 
-- There are more hyper parameter options, please refer to the source code for more detail
+- There are more hyper parameter options, please refer to the source code for more detail. For example, `--n_episode` and `--n_cluster`
 - Please remember to modify the CUDA device number X, TRAIN_CONFIG, TEST_CONFIG and PRETRAINED_ENCODER accordingly.
 - Eval a model (Actually, the evaluation code will be executed at the end of the training)
 
@@ -80,6 +78,7 @@ For example:
 
 `src/datasets/modelnet.py` L112 & `src/datasets/shapenet.py` L132  -- **Modified the index number based on your file path**
 
+More example will be added later, if any.
 
 ## Citation
 
